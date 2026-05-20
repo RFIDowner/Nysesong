@@ -9,7 +9,6 @@
 #include <mqtt_client.h>
 
 // ================== KONFIG ==================
-const char* OWNER_UID = "2b0WSJmSJCZRqiJnzQhfGfFuc2D2";
 const bool MQTT_TRANSPORT_ENABLED = true; // feature flag for easy rollback
 const char* MQTT_BROKER_URI = "mqtt://34.34.165.200:1883";
 const char* MQTT_TOPIC = "pigeonpal/ingest/raw/v1";
@@ -657,7 +656,6 @@ const char* MQTT_PASSWORD = "";
     String eventId = buildEventId(e);
     String payload = "{";
     payload += "\"deviceId\":\"" + deviceId + "\",";
-    payload += "\"ownerUid\":\"" + String(OWNER_UID) + "\",";
     payload += "\"chipId\":\"" + String(e.chipIdDec) + "\",";
     payload += "\"timestamp\":\"" + String(ts) + "\",";
     payload += "\"eventId\":\"" + eventId + "\"";
