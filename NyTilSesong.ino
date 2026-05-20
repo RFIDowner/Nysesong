@@ -257,8 +257,7 @@ const char* MQTT_PASSWORD = "";
     Serial.println();
 
     if (WiFi.status() == WL_CONNECTED) {
-      Serial.print("WiFi connected. IP: ");
-      Serial.println(WiFi.localIP());
+      Serial.println("WiFi connected.");
       return true;
     }
 
@@ -424,10 +423,7 @@ const char* MQTT_PASSWORD = "";
     server.begin();
 
     Serial.println("Provisioning mode started.");
-    Serial.print("Connect phone to AP: ");
-    Serial.println(apName);
-    Serial.print("Open in browser: http://");
-    Serial.println(WiFi.softAPIP());
+    Serial.println("WiFi setup portal ready.");
   }
 
   // ================== RINGBUFFER FUNKSJONER ==================
@@ -567,19 +563,19 @@ const char* MQTT_PASSWORD = "";
         mqttInFlightSinceMs = 0;
         if (mqttReconnectStreak < 10) mqttReconnectStreak++;
         scheduleNextMqttReconnect();
-        Serial.print("MQTT disconnected. reconnectInMs=");
-        Serial.println((uint32_t)(mqttNextReconnectAllowedMs - millis()));
+        Serial.println("MQTT disconnected.");
+        Serial.println("MQTT error/retry.");
         break;
 
       case MQTT_EVENT_PUBLISHED:
         mqttLastAckMsgId = event->msg_id;
         mqttPublishAcked++;
-        Serial.print("MQTT ack msgId=");
-        Serial.println(event->msg_id);
+        Serial.println("MQTT publish ok.");
+        Serial.println("MQTT ack received.");
         break;
 
       case MQTT_EVENT_ERROR:
-        Serial.println("MQTT event error.");
+        Serial.println("MQTT error/retry.");
         break;
 
       default:
@@ -615,15 +611,14 @@ const char* MQTT_PASSWORD = "";
 
     esp_err_t err = esp_mqtt_client_start(mqttClient);
     if (err != ESP_OK) {
-      Serial.print("MQTT start failed err=");
-      Serial.println((int)err);
+      Serial.println("MQTT error/retry.");
+      Serial.println("MQTT start failed.");
       if (mqttReconnectStreak < 10) mqttReconnectStreak++;
       scheduleNextMqttReconnect();
       return;
     }
 
-    Serial.print("MQTT start uri=");
-    Serial.println(MQTT_BROKER_URI);
+    Serial.println("MQTT client started.");
   }
 
   void serviceMqttReconnect() {
@@ -631,13 +626,13 @@ const char* MQTT_PASSWORD = "";
     if ((int32_t)(millis() - mqttNextReconnectAllowedMs) < 0) return;
 
     mqttReconnectAttempts++;
-    Serial.print("MQTT reconnect attempt #");
-    Serial.println(mqttReconnectAttempts);
+    Serial.println("MQTT error/retry.");
+    Serial.println("MQTT reconnect attempt.");
 
     esp_err_t err = esp_mqtt_client_reconnect(mqttClient);
     if (err != ESP_OK) {
-      Serial.print("MQTT reconnect call failed err=");
-      Serial.println((int)err);
+      Serial.println("MQTT error/retry.");
+      Serial.println("MQTT reconnect call failed.");
       if (mqttReconnectStreak < 10) mqttReconnectStreak++;
       scheduleNextMqttReconnect();
       return;
@@ -661,10 +656,7 @@ const char* MQTT_PASSWORD = "";
     payload += "\"eventId\":\"" + eventId + "\"";
     payload += "}";
 
-    Serial.print("MQTT publish chipId=");
-    Serial.print(e.chipIdDec);
-    Serial.print(" eventId=");
-    Serial.println(eventId);
+    Serial.println("MQTT publish event.");
 
     int msgId = esp_mqtt_client_publish(
       mqttClient,
@@ -675,8 +667,8 @@ const char* MQTT_PASSWORD = "";
       0    // no retain
     );
 
-    Serial.print("MQTT publish result msgId=");
-    Serial.println(msgId);
+    Serial.println("MQTT publish queued.");
+    Serial.println("MQTT publish status recorded.");
 
     if (msgId > 0) {
       internetReachable = true;
@@ -737,10 +729,7 @@ const char* MQTT_PASSWORD = "";
   }
 
   void logRfidRead(const String& hex, const char* chipDec) {
-    Serial.print("RFID read. HEX=");
-    Serial.print(hex);
-    Serial.print(" DEC=");
-    Serial.println(chipDec);
+    Serial.println("RFID event queued.");
   }
 
   bool shouldBufferRfidTag(const String& hex, unsigned long now) {
@@ -760,38 +749,12 @@ const char* MQTT_PASSWORD = "";
     if (now - lastRfidStatsMs < 5000UL) return;
     lastRfidStatsMs = now;
 
-    Serial.print("RFID stats: bytes=");
-    Serial.print(rfidBytesRead);
-    Serial.print(" framesOk=");
+    Serial.print("RFID stats: framesOk=");
     Serial.print(rfidFramesOk);
-    Serial.print(" short=");
-    Serial.print(rfidFramesTooShort);
-    Serial.print(" overflow=");
-    Serial.print(rfidFramesOverflow);
     Serial.print(" buffered=");
     Serial.print(rfidTagsBuffered);
-    Serial.print(" queueNow=");
-    Serial.print(bufferCountApprox());
-    Serial.print(" oldestAgeMs=");
-    Serial.print(bufferOldestAgeMs());
-    Serial.print(" dupSuppressed=");
-    Serial.print(rfidDuplicatesSuppressed);
     Serial.print(" mqttConn=");
-    Serial.print(mqttConnected ? 1 : 0);
-    Serial.print(" inFlight=");
-    Serial.print(mqttPublishInFlight ? 1 : 0);
-    Serial.print(" mqttPub=");
-    Serial.print(mqttPublishAttempts);
-    Serial.print("/");
-    Serial.print(mqttPublishAccepted);
-    Serial.print("/");
-    Serial.print(mqttPublishAcked);
-    Serial.print(" mqttErr=");
-    Serial.print(mqttPublishErrors);
-    Serial.print(" ackTimeout=");
-    Serial.print(mqttAckTimeouts);
-    Serial.print(" reconn=");
-    Serial.println(mqttReconnectAttempts);
+    Serial.println(mqttConnected ? 1 : 0);
   }
 
   // ================== NTP ANKER ==================
@@ -866,7 +829,7 @@ const char* MQTT_PASSWORD = "";
             mqttInFlightMsgId = -1;
             if (retryStreak < 10) retryStreak++;
             scheduleNextRetry();
-            Serial.println("MQTT ack timeout: retrying same queue head.");
+            Serial.println("MQTT error/retry.");
           }
         }
 
@@ -934,8 +897,7 @@ const char* MQTT_PASSWORD = "";
     }
 
     deviceId = makeDeviceId();
-    Serial.print("Device ID: ");
-    Serial.println(deviceId);
+    Serial.println("Device initialized.");
     Serial.println("RFID monitor active on USB serial at 115200 baud.");
     Serial.println("Reader input: GPIO16 (Serial2 RX).");
 
