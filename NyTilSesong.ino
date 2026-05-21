@@ -680,7 +680,10 @@ const char* MQTT_PASSWORD = "";
   }
 
   // ================== RFID PARSING ==================
-  String rfidBuf;
+  const size_t RFID_MAX_HEX_LEN = 24;
+  char rfidBuf[RFID_MAX_HEX_LEN + 1] = {0};
+  size_t rfidBufLen = 0;
+  bool rfidInFrame = false;
   const unsigned long RFID_DUPLICATE_DEBOUNCE_MS = 2000UL;
   const int RFID_MIN_DEC_DIGITS = 10;
   uint32_t rfidBytesRead = 0;
@@ -690,57 +693,77 @@ const char* MQTT_PASSWORD = "";
   uint32_t rfidTagsBuffered = 0;
   uint32_t rfidDuplicatesSuppressed = 0;
   unsigned long lastRfidStatsMs = 0;
-  String lastAcceptedRfidHex;
+  char lastAcceptedRfidHex[RFID_MAX_HEX_LEN + 1] = {0};
   unsigned long lastAcceptedRfidMs = 0;
 
-  String readRFIDHexFrame() {
+  bool readRFIDHexFrame(char* out, size_t outLen) {
     while (RFID.available()) {
       uint8_t b = RFID.read();
       rfidBytesRead++;
 
       if (b == 0x02) {
-        rfidBuf = "";
-      } else if (b == 0x03) {
-        if (rfidBuf.length() >= 4) {
-          String out = rfidBuf;
-          rfidBuf = "";
+        rfidInFrame = true;
+        rfidBufLen = 0;
+        rfidBuf[0] = '\0';
+        continue;
+      }
+
+      if (!rfidInFrame) continue;
+
+      if (b == 0x03) {
+        if (rfidBufLen >= 4) {
+          if (outLen > 0) {
+            size_t copyLen = rfidBufLen < (outLen - 1) ? rfidBufLen : (outLen - 1);
+            memcpy(out, rfidBuf, copyLen);
+            out[copyLen] = '\0';
+          }
+          rfidInFrame = false;
+          rfidBufLen = 0;
+          rfidBuf[0] = '\0';
           rfidFramesOk++;
-          return out;
+          return true;
         } else {
-          rfidBuf = "";
+          rfidInFrame = false;
+          rfidBufLen = 0;
+          rfidBuf[0] = '\0';
           rfidFramesTooShort++;
         }
       } else {
         char c = (char)b;
         if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F')) {
-          rfidBuf += c;
-          if (rfidBuf.length() > 24) {
-            rfidBuf = "";
+          if (rfidBufLen < RFID_MAX_HEX_LEN) {
+            rfidBuf[rfidBufLen++] = c;
+            rfidBuf[rfidBufLen] = '\0';
+          } else {
+            rfidInFrame = false;
+            rfidBufLen = 0;
+            rfidBuf[0] = '\0';
             rfidFramesOverflow++;
           }
         }
       }
     }
-    return "";
+    return false;
   }
 
-  void hexToDecCStr(const String& hex, char* out, size_t outLen) {
-    uint64_t v = strtoull(hex.c_str(), nullptr, 16);
+  void hexToDecCStr(const char* hex, char* out, size_t outLen) {
+    uint64_t v = strtoull(hex, nullptr, 16);
     snprintf(out, outLen, "%0*llu", RFID_MIN_DEC_DIGITS, (unsigned long long)v);
   }
 
-  void logRfidRead(const String& hex, const char* chipDec) {
+  void logRfidRead(const char* hex, const char* chipDec) {
     Serial.println("RFID event queued.");
   }
 
-  bool shouldBufferRfidTag(const String& hex, unsigned long now) {
-    if (hex == lastAcceptedRfidHex &&
+  bool shouldBufferRfidTag(const char* hex, unsigned long now) {
+    if (strcmp(hex, lastAcceptedRfidHex) == 0 &&
         (now - lastAcceptedRfidMs) < RFID_DUPLICATE_DEBOUNCE_MS) {
       rfidDuplicatesSuppressed++;
       return false;
     }
 
-    lastAcceptedRfidHex = hex;
+    strncpy(lastAcceptedRfidHex, hex, sizeof(lastAcceptedRfidHex) - 1);
+    lastAcceptedRfidHex[sizeof(lastAcceptedRfidHex) - 1] = '\0';
     lastAcceptedRfidMs = now;
     return true;
   }
@@ -763,8 +786,8 @@ const char* MQTT_PASSWORD = "";
 
     for (;;) {
       while (true) {
-        String hex = readRFIDHexFrame();
-        if (hex.length() == 0) break;
+        char hex[RFID_MAX_HEX_LEN + 1];
+        if (!readRFIDHexFrame(hex, sizeof(hex))) break;
 
         unsigned long readNow = millis();
         if (!shouldBufferRfidTag(hex, readNow)) continue;
