@@ -126,7 +126,6 @@ const char* MQTT_PASSWORD = "";
   String buildSsidOptionsHtml();
 
   void tryInitNtpAnchor();
-  bool isMainLoopContext();
   void timestampForEventIso(const Event& e, char* out, size_t outLen);
 
   bool bufferPeek(Event& out);
@@ -686,17 +685,12 @@ const char* MQTT_PASSWORD = "";
   size_t rfidBufLen = 0;
   bool rfidInFrame = false;
   unsigned long rfidLastByteMs = 0;
-  const unsigned long RFID_DUPLICATE_DEBOUNCE_MS = 2000UL;
   const int RFID_MIN_DEC_DIGITS = 10;
   uint32_t rfidBytesRead = 0;
   uint32_t rfidFramesOk = 0;
   uint32_t rfidFramesTooShort = 0;
   uint32_t rfidFramesOverflow = 0;
-  uint32_t rfidTagsBuffered = 0;
-  uint32_t rfidDuplicatesSuppressed = 0;
   unsigned long lastRfidStatsMs = 0;
-  char lastAcceptedRfidHex[RFID_MAX_HEX_LEN + 1] = {0};
-  unsigned long lastAcceptedRfidMs = 0;
 
   void resetRfidParser() {
     rfidInFrame = false;
@@ -764,19 +758,6 @@ const char* MQTT_PASSWORD = "";
     Serial.println("RFID event queued.");
   }
 
-  bool shouldBufferRfidTag(const char* hex, unsigned long now) {
-    if (strcmp(hex, lastAcceptedRfidHex) == 0 &&
-        (now - lastAcceptedRfidMs) < RFID_DUPLICATE_DEBOUNCE_MS) {
-      rfidDuplicatesSuppressed++;
-      return false;
-    }
-
-    strncpy(lastAcceptedRfidHex, hex, sizeof(lastAcceptedRfidHex) - 1);
-    lastAcceptedRfidHex[sizeof(lastAcceptedRfidHex) - 1] = '\0';
-    lastAcceptedRfidMs = now;
-    return true;
-  }
-
   void maybeLogRfidStats() {
     unsigned long now = millis();
     if (now - lastRfidStatsMs < 5000UL) return;
@@ -785,7 +766,7 @@ const char* MQTT_PASSWORD = "";
     Serial.print("RFID stats: framesOk=");
     Serial.print(rfidFramesOk);
     Serial.print(" buffered=");
-    Serial.print(rfidTagsBuffered);
+    Serial.print(bufferCountApprox());
     Serial.print(" mqttConn=");
     Serial.println(mqttConnected ? 1 : 0);
   }
@@ -799,12 +780,9 @@ const char* MQTT_PASSWORD = "";
         if (!readRFIDHexFrame(hex, sizeof(hex))) break;
 
         unsigned long readNow = millis();
-        if (!shouldBufferRfidTag(hex, readNow)) continue;
-
         char chipDec[24];
         hexToDecCStr(hex, chipDec, sizeof(chipDec));
         bufferPush(chipDec, readNow);
-        rfidTagsBuffered++;
       }
 
       vTaskDelay(pdMS_TO_TICKS(1));
@@ -816,17 +794,12 @@ const char* MQTT_PASSWORD = "";
   volatile time_t ntpEpochAtAnchor = 0;
   volatile uint32_t millisAtAnchor = 0;
 
-  bool isMainLoopContext() {
-    return xPortGetCoreID() == 1;
-  }
-
   void tryInitNtpAnchor() {
     if (ntpReady) return;
     if (WiFi.status() != WL_CONNECTED) return;
 
     static bool ntpStarted = false;
     if (!ntpStarted) {
-      if (!isMainLoopContext()) return;
       configTime(0, 0, "pool.ntp.org", "time.nist.gov");
       ntpStarted = true;
     }
@@ -989,12 +962,9 @@ const char* MQTT_PASSWORD = "";
 
   void loop() {
     if (provisioningMode) {
-      setWifiLedMode(LED_MODE_BLINK_FAST);
       dnsServer.processNextRequest();
       server.handleClient();
       serviceWifiLed();
-      serviceBuzzer();
-      maybeLogRfidStats();
       delay(2);
       return;
     }
@@ -1003,11 +973,7 @@ const char* MQTT_PASSWORD = "";
 
     // 1) WiFi/internett-status + reconnect
     if (WiFi.status() == WL_CONNECTED) {
-      tryInitNtpAnchor();
-      updateInternetReachability();
-
-      if (internetReachable) setWifiLedMode(LED_MODE_SOLID);
-      else setWifiLedMode(LED_MODE_BLINK_SLOW);
+      setWifiLedMode(LED_MODE_SOLID);
     } else {
       internetReachable = false;
       setWifiLedMode(LED_MODE_BLINK_SLOW);
@@ -1026,7 +992,5 @@ const char* MQTT_PASSWORD = "";
 
     // 2) Service
     serviceWifiLed();
-    serviceBuzzer();
-    maybeLogRfidStats();
   }
 
