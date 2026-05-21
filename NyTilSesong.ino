@@ -126,7 +126,7 @@ const char* MQTT_PASSWORD = "";
   String buildSsidOptionsHtml();
 
   void tryInitNtpAnchor();
-  void timestampForEventIso(const Event& e, char* out, size_t outLen);
+  uint32_t timestampForEventUnixSeconds(const Event& e);
 
   bool bufferPeek(Event& out);
   bool bufferCommitPop();
@@ -645,14 +645,13 @@ const char* MQTT_PASSWORD = "";
   int publishEventToMqtt(const Event& e) {
     if (!MQTT_TRANSPORT_ENABLED || !mqttConnected || mqttClient == nullptr) return -1;
 
-    char ts[32];
-    timestampForEventIso(e, ts, sizeof(ts));
+    uint32_t ts = timestampForEventUnixSeconds(e);
 
     String eventId = buildEventId(e);
     String payload = "{";
     payload += "\"deviceId\":\"" + deviceId + "\",";
     payload += "\"chipId\":\"" + String(e.chipIdDec) + "\",";
-    payload += "\"timestamp\":\"" + String(ts) + "\",";
+    payload += "\"timestamp\":" + String((unsigned long)ts) + ",";
     payload += "\"eventId\":\"" + eventId + "\"";
     payload += "}";
 
@@ -717,6 +716,8 @@ const char* MQTT_PASSWORD = "";
 
       if (!rfidInFrame) continue;
 
+      if (b == '\r' || b == '\n') continue;
+
       if (b == 0x03) {
         if (rfidBufLen >= 4) {
           if (outLen > 0) {
@@ -733,7 +734,9 @@ const char* MQTT_PASSWORD = "";
         }
       } else {
         char c = (char)b;
-        if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F')) {
+        if ((c >= '0' && c <= '9') ||
+            (c >= 'A' && c <= 'F') ||
+            (c >= 'a' && c <= 'f')) {
           if (rfidBufLen < RFID_MAX_HEX_LEN) {
             rfidBuf[rfidBufLen++] = c;
             rfidBuf[rfidBufLen] = '\0';
@@ -812,20 +815,13 @@ const char* MQTT_PASSWORD = "";
     }
   }
 
-  void epochToIsoZ(time_t epoch, char* out, size_t outLen) {
-    struct tm tm;
-    gmtime_r(&epoch, &tm);
-    strftime(out, outLen, "%Y-%m-%dT%H:%M:%SZ", &tm);
-  }
+  uint32_t timestampForEventUnixSeconds(const Event& e) {
+    if (!ntpReady) return 0;
 
-  void timestampForEventIso(const Event& e, char* out, size_t outLen) {
-    if (!ntpReady) {
-      snprintf(out, outLen, "%lu", (unsigned long)e.tMillis);
-      return;
-    }
     int32_t deltaMs = (int32_t)(e.tMillis - millisAtAnchor);
     time_t eventEpoch = ntpEpochAtAnchor + (deltaMs / 1000);
-    epochToIsoZ(eventEpoch, out, outLen);
+    if (eventEpoch <= 0) return 0;
+    return (uint32_t)eventEpoch;
   }
 
   // ================== MQTT SENDER TASK ==================
