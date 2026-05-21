@@ -681,9 +681,11 @@ const char* MQTT_PASSWORD = "";
 
   // ================== RFID PARSING ==================
   const size_t RFID_MAX_HEX_LEN = 24;
+  const unsigned long RFID_BYTE_GAP_TIMEOUT_MS = 50UL;
   char rfidBuf[RFID_MAX_HEX_LEN + 1] = {0};
   size_t rfidBufLen = 0;
   bool rfidInFrame = false;
+  unsigned long rfidLastByteMs = 0;
   const unsigned long RFID_DUPLICATE_DEBOUNCE_MS = 2000UL;
   const int RFID_MIN_DEC_DIGITS = 10;
   uint32_t rfidBytesRead = 0;
@@ -696,15 +698,26 @@ const char* MQTT_PASSWORD = "";
   char lastAcceptedRfidHex[RFID_MAX_HEX_LEN + 1] = {0};
   unsigned long lastAcceptedRfidMs = 0;
 
+  void resetRfidParser() {
+    rfidInFrame = false;
+    rfidBufLen = 0;
+    rfidBuf[0] = '\0';
+  }
+
   bool readRFIDHexFrame(char* out, size_t outLen) {
     while (RFID.available()) {
       uint8_t b = RFID.read();
       rfidBytesRead++;
+      unsigned long now = millis();
+
+      if (rfidInFrame && (now - rfidLastByteMs) > RFID_BYTE_GAP_TIMEOUT_MS) {
+        resetRfidParser();
+      }
+      rfidLastByteMs = now;
 
       if (b == 0x02) {
+        resetRfidParser();
         rfidInFrame = true;
-        rfidBufLen = 0;
-        rfidBuf[0] = '\0';
         continue;
       }
 
@@ -717,15 +730,11 @@ const char* MQTT_PASSWORD = "";
             memcpy(out, rfidBuf, copyLen);
             out[copyLen] = '\0';
           }
-          rfidInFrame = false;
-          rfidBufLen = 0;
-          rfidBuf[0] = '\0';
+          resetRfidParser();
           rfidFramesOk++;
           return true;
         } else {
-          rfidInFrame = false;
-          rfidBufLen = 0;
-          rfidBuf[0] = '\0';
+          resetRfidParser();
           rfidFramesTooShort++;
         }
       } else {
@@ -735,11 +744,11 @@ const char* MQTT_PASSWORD = "";
             rfidBuf[rfidBufLen++] = c;
             rfidBuf[rfidBufLen] = '\0';
           } else {
-            rfidInFrame = false;
-            rfidBufLen = 0;
-            rfidBuf[0] = '\0';
+            resetRfidParser();
             rfidFramesOverflow++;
           }
+        } else {
+          resetRfidParser();
         }
       }
     }
