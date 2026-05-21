@@ -144,6 +144,7 @@ const char* MQTT_PASSWORD = "";
   void serviceMqttReconnect();
   static void mqttEventHandler(void* handler_args, esp_event_base_t base, int32_t event_id, void* event_data);
   void senderTask(void* pv);
+  void rfidTask(void* pv);
 
   // ================== BUZZER ==================
   const unsigned long BUZZER_MIN_GAP_MS = 250;
@@ -757,6 +758,27 @@ const char* MQTT_PASSWORD = "";
     Serial.println(mqttConnected ? 1 : 0);
   }
 
+  void rfidTask(void* pv) {
+    (void)pv;
+
+    for (;;) {
+      while (true) {
+        String hex = readRFIDHexFrame();
+        if (hex.length() == 0) break;
+
+        unsigned long readNow = millis();
+        if (!shouldBufferRfidTag(hex, readNow)) continue;
+
+        char chipDec[24];
+        hexToDecCStr(hex, chipDec, sizeof(chipDec));
+        bufferPush(chipDec, readNow);
+        rfidTagsBuffered++;
+      }
+
+      vTaskDelay(pdMS_TO_TICKS(1));
+    }
+  }
+
   // ================== NTP ANKER ==================
   volatile bool ntpReady = false;
   volatile time_t ntpEpochAtAnchor = 0;
@@ -896,6 +918,16 @@ const char* MQTT_PASSWORD = "";
       while (true) delay(1000);
     }
 
+    xTaskCreatePinnedToCore(
+      rfidTask,
+      "rfidTask",
+      4096,
+      nullptr,
+      3,
+      nullptr,
+      1
+    );
+
     deviceId = makeDeviceId();
     Serial.println("Device initialized.");
     Serial.println("RFID monitor active on USB serial at 115200 baud.");
@@ -920,7 +952,7 @@ const char* MQTT_PASSWORD = "";
       0
     );
 
-    Serial.println("Ultra-streng async: loop=RFID, task=MQTT.");
+    Serial.println("Ultra-streng async: task=RFID, task=MQTT.");
   }
 
   void loop() {
@@ -937,23 +969,7 @@ const char* MQTT_PASSWORD = "";
 
     unsigned long now = millis();
 
-    // 1) RFID først
-    while (true) {
-      String hex = readRFIDHexFrame();
-      if (hex.length() == 0) break;
-
-      unsigned long readNow = millis();
-      if (!shouldBufferRfidTag(hex, readNow)) continue;
-
-      char chipDec[24];
-      hexToDecCStr(hex, chipDec, sizeof(chipDec));
-      bufferPush(chipDec, readNow);
-      rfidTagsBuffered++;
-      logRfidRead(hex, chipDec);
-      beepImmediateRateLimited();
-    }
-
-    // 2) WiFi/internett-status + reconnect
+    // 1) WiFi/internett-status + reconnect
     if (WiFi.status() == WL_CONNECTED) {
       tryInitNtpAnchor();
       updateInternetReachability();
@@ -976,7 +992,7 @@ const char* MQTT_PASSWORD = "";
       }
     }
 
-    // 3) Service
+    // 2) Service
     serviceWifiLed();
     serviceBuzzer();
     maybeLogRfidStats();
