@@ -19,7 +19,6 @@ const char* MQTT_PASSWORD = "";
   #define RFID_RX    16
   #define RFID_TX    17
   #define WIFI_LED   2
-  #define BUZZER_PIN 27
 
   HardwareSerial RFID(2);
 
@@ -144,32 +143,6 @@ const char* MQTT_PASSWORD = "";
   static void mqttEventHandler(void* handler_args, esp_event_base_t base, int32_t event_id, void* event_data);
   void senderTask(void* pv);
   void rfidTask(void* pv);
-
-  // ================== BUZZER ==================
-  const unsigned long BUZZER_MIN_GAP_MS = 250;
-  const unsigned long BUZZER_PULSE_MS   = 40;
-
-  unsigned long lastBeepMs = 0;
-  bool buzzerOn = false;
-  unsigned long buzzerOffAt = 0;
-
-  void beepImmediateRateLimited() {
-    unsigned long now = millis();
-    if (now - lastBeepMs < BUZZER_MIN_GAP_MS) return;
-    lastBeepMs = now;
-
-    digitalWrite(BUZZER_PIN, HIGH);
-    buzzerOn = true;
-    buzzerOffAt = now + BUZZER_PULSE_MS;
-  }
-
-  void serviceBuzzer() {
-    if (!buzzerOn) return;
-    if (millis() >= buzzerOffAt) {
-      digitalWrite(BUZZER_PIN, LOW);
-      buzzerOn = false;
-    }
-  }
 
   // ================== DEVICE ID ==================
   String macToUpperNoColon(const String& mac) {
@@ -907,9 +880,6 @@ const char* MQTT_PASSWORD = "";
     pinMode(WIFI_LED, OUTPUT);
     digitalWrite(WIFI_LED, LOW);
     setWifiLedMode(LED_MODE_BLINK_SLOW);
-
-    pinMode(BUZZER_PIN, OUTPUT);
-    digitalWrite(BUZZER_PIN, LOW);
 
     RFID.begin(9600, SERIAL_8N1, RFID_RX, -1);
 
