@@ -653,6 +653,7 @@ const char* MQTT_PASSWORD = "";
   // ================== RFID PARSING ==================
   const size_t RFID_MAX_HEX_LEN = 24;
   const unsigned long RFID_BYTE_GAP_TIMEOUT_MS = 50UL;
+  const unsigned long RFID_DUPLICATE_BLOCK_MS = 4000UL;
   char rfidBuf[RFID_MAX_HEX_LEN + 1] = {0};
   size_t rfidBufLen = 0;
   bool rfidInFrame = false;
@@ -662,7 +663,10 @@ const char* MQTT_PASSWORD = "";
   uint32_t rfidFramesOk = 0;
   uint32_t rfidFramesTooShort = 0;
   uint32_t rfidFramesOverflow = 0;
+  uint32_t rfidDuplicatesBlocked = 0;
   unsigned long lastRfidStatsMs = 0;
+  char lastAcceptedChipId[24] = {0};
+  unsigned long lastAcceptedChipMs = 0;
 
   void resetRfidParser() {
     rfidInFrame = false;
@@ -730,6 +734,21 @@ const char* MQTT_PASSWORD = "";
     snprintf(out, outLen, "%0*llu", RFID_MIN_DEC_DIGITS, (unsigned long long)v);
   }
 
+  bool shouldBlockDuplicate(const char* chipId, unsigned long nowMs) {
+    if (lastAcceptedChipId[0] == '\0') return false;
+
+    bool sameChip = strcmp(chipId, lastAcceptedChipId) == 0;
+    bool withinWindow = (unsigned long)(nowMs - lastAcceptedChipMs) < RFID_DUPLICATE_BLOCK_MS;
+
+    return sameChip && withinWindow;
+  }
+
+  void rememberAcceptedChip(const char* chipId, unsigned long nowMs) {
+    strncpy(lastAcceptedChipId, chipId, sizeof(lastAcceptedChipId) - 1);
+    lastAcceptedChipId[sizeof(lastAcceptedChipId) - 1] = '\0';
+    lastAcceptedChipMs = nowMs;
+  }
+
   void logRfidRead(const char* hex, const char* chipDec) {
     Serial.println("RFID event queued.");
   }
@@ -741,6 +760,8 @@ const char* MQTT_PASSWORD = "";
 
     Serial.print("RFID stats: framesOk=");
     Serial.print(rfidFramesOk);
+    Serial.print(" dupBlocked=");
+    Serial.print(rfidDuplicatesBlocked);
     Serial.print(" buffered=");
     Serial.print(bufferCountApprox());
     Serial.print(" mqttConn=");
@@ -758,6 +779,14 @@ const char* MQTT_PASSWORD = "";
         unsigned long readNow = millis();
         char chipDec[24];
         hexToDecCStr(hex, chipDec, sizeof(chipDec));
+
+        // Cheap duplicate guard: only block the same chip read directly after itself.
+        if (shouldBlockDuplicate(chipDec, readNow)) {
+          rfidDuplicatesBlocked++;
+          continue;
+        }
+
+        rememberAcceptedChip(chipDec, readNow);
         bufferPush(chipDec, readNow);
       }
 
