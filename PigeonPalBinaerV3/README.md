@@ -20,7 +20,8 @@ V3 = V2 (5-byte chip-fiks, duplikatvakt, HOL-rotasjon) + fire tillegg:
    10 s = angre. (Før: omflashing var eneste utvei ved byttet ruter.)
 
 ## Flash-sjekkliste
-- Arduino IDE, samme board-oppsett som V2.
+- Arduino IDE, samme board-oppsett som V2. (Verifisert kompilert med
+  arduino-cli + esp32-core 3.3.10: 83 % flash, 23 % RAM.)
 - `MQTT_USERNAME`/`MQTT_PASSWORD` i toppen kan stå tomme (portal-verdier
   vinner uansett).
 - Etter flash: verifiser i seriemonitor at `FW: 3.0.0` logges, og at
